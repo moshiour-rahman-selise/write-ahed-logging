@@ -2,9 +2,9 @@
   "name": "write-ahed-logging",
   "version": "1.0.0",
   "description": "Hands-on Write-Ahead Log (WAL) pattern implementation in Node.js",
-  "main": "fundamentals.ts",
+  "main": "src/index.ts",
   "scripts": {
-    "start": "ts-node fundamentals.ts"
+    "start": "ts-node src/index.ts"
   },
   "keywords": [],
   "author": "",

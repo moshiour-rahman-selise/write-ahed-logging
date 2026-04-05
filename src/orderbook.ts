@@ -1,0 +1,100 @@
+import fs from 'fs';
+import { Order, Orderbook, Side, StampedEntry } from './types';
+import { LOG_FILE, CHECKPOINT_FILE } from './config';
+import { readOrderbook } from './helpers';
+import { logAndApply } from './wal';
+
+// ── Apply helpers ─────────────────────────────────────────────────────────────
+
+function applyPlace(ob: Orderbook, order: Order): void {
+    if (order.side === 'BID') ob.bids.push(order);
+    else                      ob.asks.push(order);
+}
+
+function applyCancel(ob: Orderbook, orderId: number, side: Side): void {
+    if (side === 'BID') ob.bids = ob.bids.filter(o => o.id !== orderId);
+    else                ob.asks = ob.asks.filter(o => o.id !== orderId);
+}
+
+function removeQty(orders: Order[], id: number, qty: number): void {
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx === -1) return;
+    orders[idx].qty -= qty;
+    if (orders[idx].qty === 0) orders.splice(idx, 1);
+}
+
+function applyFill(ob: Orderbook, bidId: number, askId: number, qty: number): void {
+    removeQty(ob.bids, bidId, qty);
+    removeQty(ob.asks, askId, qty);
+}
+
+// ── Operations ───────────────────────────────────────────────────────────────
+
+export function place(order: Order): void {
+    logAndApply({ op: 'PLACE', order }, (ob) => applyPlace(ob, order));
+    match();
+}
+
+export function fill(bidId: number, askId: number, price: number, qty: number): void {
+    logAndApply({ op: 'FILL', bidId, askId, price, qty }, (ob) => applyFill(ob, bidId, askId, qty));
+}
+
+export function cancel(orderId: number, side: Side): void {
+    logAndApply({ op: 'CANCEL', orderId, side }, (ob) => applyCancel(ob, orderId, side));
+}
+
+// ── Matching Engine ───────────────────────────────────────────────────────────
+
+function best(orders: Order[], isBetter: (a: Order, b: Order) => boolean): Order | undefined {
+    return orders.reduce<Order | undefined>((top, o) => !top || isBetter(o, top) ? o : top, undefined);
+}
+
+export function match(): void {
+    while (true) {
+        const ob      = readOrderbook();
+        const bestBid = best(ob.bids, (a, b) => a.price > b.price);
+        const bestAsk = best(ob.asks, (a, b) => a.price < b.price);
+
+        if (!bestBid || !bestAsk || bestAsk.price > bestBid.price) break;
+
+        const qty = Math.min(bestBid.qty, bestAsk.qty);
+        console.log(`  [match] BID#${bestBid.id}(${bestBid.trader}) x ASK#${bestAsk.id}(${bestAsk.trader}) @ ${bestAsk.price} qty=${qty}`);
+        fill(bestBid.id, bestAsk.id, bestAsk.price, qty);
+    }
+}
+
+// ── Recovery ─────────────────────────────────────────────────────────────────
+
+export function recover(): Orderbook {
+    if (!fs.existsSync(LOG_FILE)) return { bids: [], asks: [] };
+
+    let checkpointLSN = 0;
+    let ob: Orderbook = { bids: [], asks: [] };
+
+    if (fs.existsSync(CHECKPOINT_FILE)) {
+        ({ lsn: checkpointLSN } = JSON.parse(fs.readFileSync(CHECKPOINT_FILE, 'utf8')));
+        ob = readOrderbook();
+        console.log(`  [recover] checkpoint at LSN=${checkpointLSN}, loading snapshot`);
+    } else {
+        console.log(`  [recover] no checkpoint, replaying full log`);
+    }
+
+    const lines = fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean);
+
+    for (const line of lines) {
+        const entry = JSON.parse(line) as StampedEntry;
+
+        if (entry.lsn <= checkpointLSN) continue;
+        if (entry.op === 'CHECKPOINT')  continue;
+
+        switch (entry.op) {
+            case 'PLACE':  applyPlace(ob, entry.order);                        break;
+            case 'FILL':   applyFill(ob, entry.bidId, entry.askId, entry.qty); break;
+            case 'CANCEL': applyCancel(ob, entry.orderId, entry.side);          break;
+        }
+
+        console.log(`  replayed: LSN=${entry.lsn} ${entry.op}`);
+    }
+
+    return ob;
+}

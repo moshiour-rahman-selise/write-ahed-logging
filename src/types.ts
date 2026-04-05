@@ -1,11 +1,22 @@
-export type Row = Record<string, unknown>;
+export type Side = 'BID' | 'ASK';
 
-export type InsertEntry     = { op: 'INSERT';     table: string; data: Row };
-export type UpdateEntry     = { op: 'UPDATE';     table: string; id: number; before: Row; after: Row };
-export type DeleteEntry     = { op: 'DELETE';     table: string; id: number; before: Row };
+export type Order = {
+  id:     number;
+  side:   Side;
+  price:  number;
+  qty:    number;
+  trader: string;
+};
+
+export type Orderbook = {
+  bids: Order[];
+  asks: Order[];
+};
+
+export type PlaceEntry      = { op: 'PLACE';      order: Order };
+export type FillEntry       = { op: 'FILL';       bidId: number; askId: number; price: number; qty: number };
+export type CancelEntry     = { op: 'CANCEL';     orderId: number; side: Side };
 export type CheckpointEntry = { op: 'CHECKPOINT' };
 
-export type LogEntry     = InsertEntry | UpdateEntry | DeleteEntry | CheckpointEntry;
+export type LogEntry     = PlaceEntry | FillEntry | CancelEntry | CheckpointEntry;
 export type StampedEntry = LogEntry & { lsn: number };
-
-export type Database = Record<string, Row[]>;

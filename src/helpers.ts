@@ -1,17 +1,11 @@
 import fs from 'fs';
-import { Database, Row } from './types';
+import { Orderbook } from './types';
 
 const DATA_FILE = './storage/data.json';
 
-export function readData(): Database {
-  if (!fs.existsSync(DATA_FILE)) return {};
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Database;
-}
-
-export function findRow(table: string, id: number): Row {
-  const row = readData()[table]?.find(r => r.id === id);
-  if (!row) throw new Error(`Row not found: ${table}#${id}`);
-  return row;
+export function readOrderbook(): Orderbook {
+  if (!fs.existsSync(DATA_FILE)) return { bids: [], asks: [] };
+  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Orderbook;
 }
 
 export function reset(storageDir: string, resetState: () => void): void {

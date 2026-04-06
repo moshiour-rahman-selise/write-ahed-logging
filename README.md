@@ -31,11 +31,11 @@ Write to log first → apply to state → never the other way around
 Every log entry gets a unique, incrementing LSN. In an orderbook, LSN = **event sequence** — order of operations is everything.
 
 ```
-{"lsn":1,"op":"INSERT",...}   ← place order
-{"lsn":2,"op":"INSERT",...}   ← place order
-{"lsn":3,"op":"UPDATE",...}   ← partial fill
-{"lsn":4,"op":"CHECKPOINT"}   ← snapshot marker
-{"lsn":5,"op":"DELETE",...}   ← cancel order
+{"lsn":1,"op":"PLACE",...}      ← place order
+{"lsn":2,"op":"PLACE",...}      ← place order
+{"lsn":3,"op":"FILL",...}       ← partial fill
+{"lsn":4,"op":"CHECKPOINT"}     ← snapshot marker
+{"lsn":5,"op":"CANCEL",...}     ← cancel order
 ```
 
 ### Checkpointing
@@ -60,11 +60,14 @@ wal.log          →  replay LSN 5+ only
 
 ```
 src/
-  index.ts     — WAL core, operations, checkpoint, recovery, demo
-  helpers.ts   — readData, findRow, reset
-  types.ts     — shared types
+  index.ts      — demo script (place, cancel, recover)
+  orderbook.ts  — place, fill, cancel, match engine, recover
+  wal.ts        — appendLog, logAndApply, checkpoint
+  helpers.ts    — readOrderBook, reset
+  types.ts      — Order, OrderBook, Side, log entry types
+  config.ts     — file paths and CHECKPOINT_INTERVAL constant
 
-storage/       — runtime files (gitignored)
+storage/        — runtime files (gitignored)
   wal.log
   data.json
   checkpoint.json
@@ -88,8 +91,9 @@ npm start
 - [x] Checkpointing + checkpoint.json bookmark
 - [x] Recovery that skips pre-checkpoint entries
 
-### Next — Orderbook-specific
-- [ ] **Pivot to orderbook model** — replace generic `INSERT/UPDATE/DELETE` with `PLACE/FILL/CANCEL` events on `bids` and `asks`
-- [ ] **Matching engine** — log a `FILL` event when a bid and ask cross, recover partial fills correctly
+- [x] **Pivot to orderbook model** — `PLACE/FILL/CANCEL` events on `bids` and `asks`
+- [x] **Matching engine** — logs a `FILL` event when a bid and ask cross, recovers partial fills correctly
+
+### Next
 - [ ] **Log compaction** — instead of replaying all events, periodically compact to only the current open orders
 - [ ] **Crash simulation** — kill the process mid-match and verify recovery produces a consistent orderbook

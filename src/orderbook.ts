@@ -1,17 +1,17 @@
 import fs from 'fs';
-import { Order, Orderbook, Side, StampedEntry } from './types';
+import { Order, OrderBook, Side, StampedEntry } from './types';
 import { LOG_FILE, CHECKPOINT_FILE } from './config';
-import { readOrderbook } from './helpers';
+import { readOrderBook } from './helpers';
 import { logAndApply } from './wal';
 
 // ── Apply helpers ─────────────────────────────────────────────────────────────
 
-function applyPlace(ob: Orderbook, order: Order): void {
+function applyPlace(ob: OrderBook, order: Order): void {
     if (order.side === 'BID') ob.bids.push(order);
     else                      ob.asks.push(order);
 }
 
-function applyCancel(ob: Orderbook, orderId: number, side: Side): void {
+function applyCancel(ob: OrderBook, orderId: number, side: Side): void {
     if (side === 'BID') ob.bids = ob.bids.filter(o => o.id !== orderId);
     else                ob.asks = ob.asks.filter(o => o.id !== orderId);
 }
@@ -23,7 +23,7 @@ function removeQty(orders: Order[], id: number, qty: number): void {
     if (orders[idx].qty === 0) orders.splice(idx, 1);
 }
 
-function applyFill(ob: Orderbook, bidId: number, askId: number, qty: number): void {
+function applyFill(ob: OrderBook, bidId: number, askId: number, qty: number): void {
     removeQty(ob.bids, bidId, qty);
     removeQty(ob.asks, askId, qty);
 }
@@ -51,7 +51,7 @@ function best(orders: Order[], isBetter: (a: Order, b: Order) => boolean): Order
 
 export function match(): void {
     while (true) {
-        const ob      = readOrderbook();
+        const ob      = readOrderBook();
         const bestBid = best(ob.bids, (a, b) => a.price > b.price);
         const bestAsk = best(ob.asks, (a, b) => a.price < b.price);
 
@@ -65,15 +65,15 @@ export function match(): void {
 
 // ── Recovery ─────────────────────────────────────────────────────────────────
 
-export function recover(): Orderbook {
+export function recover(): OrderBook {
     if (!fs.existsSync(LOG_FILE)) return { bids: [], asks: [] };
 
     let checkpointLSN = 0;
-    let ob: Orderbook = { bids: [], asks: [] };
+    let ob: OrderBook = { bids: [], asks: [] };
 
     if (fs.existsSync(CHECKPOINT_FILE)) {
         ({ lsn: checkpointLSN } = JSON.parse(fs.readFileSync(CHECKPOINT_FILE, 'utf8')));
-        ob = readOrderbook();
+        ob = readOrderBook();
         console.log(`  [recover] checkpoint at LSN=${checkpointLSN}, loading snapshot`);
     } else {
         console.log(`  [recover] no checkpoint, replaying full log`);

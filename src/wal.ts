@@ -1,7 +1,7 @@
 import fs from 'fs';
-import { LogEntry, Orderbook, PlaceEntry, FillEntry, CancelEntry } from './types';
+import { LogEntry, OrderBook, PlaceEntry, FillEntry, CancelEntry } from './types';
 import { LOG_FILE, DATA_FILE, CHECKPOINT_FILE, CHECKPOINT_INTERVAL } from './config';
-import { readOrderbook } from './helpers';
+import { readOrderBook } from './helpers';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -24,9 +24,9 @@ export function appendLog(entry: LogEntry): number {
     return lsn;
 }
 
-export function logAndApply(entry: PlaceEntry | FillEntry | CancelEntry, applyFn: (ob: Orderbook) => void): void {
+export function logAndApply(entry: PlaceEntry | FillEntry | CancelEntry, applyFn: (ob: OrderBook) => void): void {
     appendLog(entry);
-    const ob = readOrderbook();
+    const ob = readOrderBook();
     applyFn(ob);
     fs.writeFileSync(DATA_FILE, JSON.stringify(ob, null, 2));
     opsSinceCheckpoint++;
@@ -35,7 +35,7 @@ export function logAndApply(entry: PlaceEntry | FillEntry | CancelEntry, applyFn
 
 // ── Checkpoint (internal) ─────────────────────────────────────────────────────
 
-function checkpoint(_ob: Orderbook): void {
+function checkpoint(_ob: OrderBook): void {
     const lsn = appendLog({ op: 'CHECKPOINT' });
     fs.writeFileSync(CHECKPOINT_FILE, JSON.stringify({ lsn }));
     opsSinceCheckpoint = 0;

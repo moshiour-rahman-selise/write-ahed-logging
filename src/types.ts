@@ -8,7 +8,7 @@ export type Order = {
   trader: string;
 };
 
-export type Orderbook = {
+export type OrderBook = {
   bids: Order[];
   asks: Order[];
 };

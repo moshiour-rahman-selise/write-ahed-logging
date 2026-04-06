@@ -1,11 +1,11 @@
 import fs from 'fs';
-import { Orderbook } from './types';
+import { OrderBook } from './types';
 
 const DATA_FILE = './storage/data.json';
 
-export function readOrderbook(): Orderbook {
+export function readOrderBook(): OrderBook {
   if (!fs.existsSync(DATA_FILE)) return { bids: [], asks: [] };
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Orderbook;
+  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as OrderBook;
 }
 
 export function reset(storageDir: string, resetState: () => void): void {

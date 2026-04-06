@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { LogEntry, OrderBook, PlaceEntry, FillEntry, CancelEntry } from './types';
-import { LOG_FILE, DATA_FILE, CHECKPOINT_FILE, CHECKPOINT_INTERVAL } from './config';
+import { LOG_FILE, DATA_FILE, CHECKPOINT_FILE, CHECKPOINT_INTERVAL, GROUP_COMMIT_SIZE } from './config';
 import { readOrderBook } from './helpers';
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -22,14 +22,38 @@ export function initWalState(): void {
     opsSinceCheckpoint = 0;
 }
 
+// ── Group Commit ──────────────────────────────────────────────────────────────
+
+let logFd:        number | null = null;
+let pendingWrites = 0;
+
+function openLog(): void {
+    if (logFd === null) logFd = fs.openSync(LOG_FILE, 'a');
+}
+
+export function flushLog(): void {
+    if (logFd !== null && pendingWrites > 0) {
+        fs.fsyncSync(logFd);
+        pendingWrites = 0;
+    }
+}
+
+export function closeLog(): void {
+    flushLog();
+    if (logFd !== null) {
+        fs.closeSync(logFd);
+        logFd = null;
+    }
+}
+
 // ── Core ─────────────────────────────────────────────────────────────────────
 
 export function appendLog(entry: LogEntry): number {
     const lsn = ++currentLSN;
-    const fd = fs.openSync(LOG_FILE, 'a');
-    fs.writeSync(fd, JSON.stringify({ lsn, ...entry }) + '\n');
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
+    openLog();
+    fs.writeSync(logFd!, JSON.stringify({ lsn, ...entry }) + '\n');
+    pendingWrites++;
+    if (pendingWrites >= GROUP_COMMIT_SIZE) flushLog();
     return lsn;
 }
 
@@ -53,10 +77,12 @@ export function logAndApply(
 // ── Checkpoint ────────────────────────────────────────────────────────────────
 
 function checkpoint(): void {
-    const lsn = ++currentLSN;
+    flushLog();  // ensure all pending writes are durable before compacting
+    closeLog();  // close fd so we can safely truncate the file
+
+    const lsn  = ++currentLSN;
     const line = JSON.stringify({ lsn, op: 'CHECKPOINT' }) + '\n';
 
-    // Write checkpoint.json bookmark
     fs.writeFileSync(CHECKPOINT_FILE, JSON.stringify({ lsn }));
 
     // Compact: truncate wal.log to just the CHECKPOINT entry.

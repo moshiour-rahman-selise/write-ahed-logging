@@ -89,7 +89,13 @@ export function recover(): OrderBook {
     const lines = fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean);
 
     for (const line of lines) {
-        const entry = JSON.parse(line) as StampedEntry;
+        let entry: StampedEntry;
+        try {
+            entry = JSON.parse(line) as StampedEntry;
+        } catch {
+            console.warn(`  [recover] skipping corrupt entry: ${line.slice(0, 60)}...`);
+            continue;
+        }
 
         if (entry.lsn <= checkpointLSN) continue;
         if (entry.op === 'CHECKPOINT')  continue;

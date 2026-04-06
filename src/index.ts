@@ -2,7 +2,7 @@ import fs from 'fs';
 import { StampedEntry } from './types';
 import { STORAGE_DIR, LOG_FILE } from './config';
 import { reset } from './helpers';
-import { resetWalState } from './wal';
+import { resetWalState, closeLog } from './wal';
 import { place, cancel, recover, setCrashNextFill } from './orderbook';
 
 // ── Demo ─────────────────────────────────────────────────────────────────────
@@ -55,3 +55,5 @@ console.log('  open asks:', afterCrash.asks);
 
 const fullyMatched = afterCrash.bids.length === 0 && afterCrash.asks.length === 0;
 console.log(`\n  Consistent? ${fullyMatched ? 'YES — both sides empty, fill replayed correctly' : 'NO — unexpected state'}`);
+
+closeLog();

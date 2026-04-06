@@ -59,6 +59,17 @@ wal.log          →  only the CHECKPOINT entry + any ops since
 
 If no checkpoint exists, the full log is replayed from scratch.
 
+### Group Commit
+Instead of fsyncing on every single log write, entries are batched and flushed every `GROUP_COMMIT_SIZE` writes. This keeps the log fd open across calls and trades a small durability window for significantly higher write throughput.
+
+```
+write entry 1  → in OS buffer
+write entry 2  → in OS buffer
+write entry 3  → fsync (batch of 3 flushed to disk at once)
+```
+
+`flushLog()` forces an immediate fsync — called before every checkpoint to ensure nothing is lost during log compaction. `closeLog()` flushes and closes the fd on clean shutdown.
+
 ### Crash Safety
 `data.json` is written atomically (write to `.tmp` then rename) so a crash mid-write can never corrupt the snapshot. If the process dies after a log entry is fsynced but before `data.json` is updated, recovery replays that entry from the log and produces a consistent state.
 
@@ -72,10 +83,10 @@ src/
   crash-demo.ts   — resets storage, places crossing orders, exits mid-fill
   recover-demo.ts — reads existing storage and runs recovery
   orderbook.ts    — place, fill, cancel, match engine, recover
-  wal.ts          — appendLog, logAndApply, checkpoint+compaction, initWalState
+  wal.ts          — appendLog, logAndApply, checkpoint+compaction, group commit, initWalState
   helpers.ts      — readOrderBook, reset
   types.ts        — Order, OrderBook, Side, log entry types
-  config.ts       — file paths and CHECKPOINT_INTERVAL constant
+  config.ts       — file paths, CHECKPOINT_INTERVAL, GROUP_COMMIT_SIZE constants
 
 storage/          — runtime files (gitignored)
   wal.log
@@ -111,7 +122,6 @@ npm run recover
 - [x] **Matching engine** — logs a `FILL` event when a bid and ask cross, recovers partial fills correctly
 - [x] **Log compaction** — checkpoint truncates wal.log so recovery never replays stale entries
 - [x] **Crash simulation** — `process.exit()` mid-fill, recovery produces consistent state
+- [x] **Partial-write guard** — detect and skip truncated JSON lines in wal.log on recovery
 
-### Next
-- [ ] **Group commit** — batch multiple log entries and fsync once for higher write throughput
-- [ ] **Partial-write guard** — detect and skip truncated JSON lines in wal.log on recovery
+- [x] **Group commit** — batch multiple log entries and fsync once for higher write throughput

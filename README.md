@@ -123,5 +123,4 @@ npm run recover
 - [x] **Log compaction** — checkpoint truncates wal.log so recovery never replays stale entries
 - [x] **Crash simulation** — `process.exit()` mid-fill, recovery produces consistent state
 - [x] **Partial-write guard** — detect and skip truncated JSON lines in wal.log on recovery
-
 - [x] **Group commit** — batch multiple log entries and fsync once for higher write throughput

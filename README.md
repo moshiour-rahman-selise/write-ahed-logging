@@ -10,13 +10,13 @@ An orderbook is stateful and sequence-sensitive. If the service crashes mid-matc
 
 WAL solves this by ensuring every operation is durably written to a log *before* it touches in-memory state. On restart, the log is replayed to rebuild the orderbook exactly as it was.
 
-| Orderbook event | WAL operation |
-|---|---|
-| Place order (bid/ask) | `INSERT` |
-| Partial fill | `UPDATE` |
-| Cancel / fully filled | `DELETE` |
-| Periodic snapshot | `CHECKPOINT` |
-| Service restart | `RECOVER` |
+| Orderbook event       | WAL operation |
+|-----------------------|---------------|
+| Place order (bid/ask) | `PLACE`       |
+| Partial fill          | `FILL`        |
+| Cancel / fully filled | `CANCEL`      |
+| Periodic snapshot     | `CHECKPOINT`  |
+| Service restart       | `RECOVER`     |
 
 ---
 
@@ -38,21 +38,29 @@ Every log entry gets a unique, incrementing LSN. In an orderbook, LSN = **event 
 {"lsn":5,"op":"CANCEL",...}     ← cancel order
 ```
 
-### Checkpointing
-Every N operations, the current state is flushed to disk and a checkpoint LSN is recorded. On recovery, only entries **after** the checkpoint LSN are replayed — avoiding a full log scan on every restart.
+### Checkpointing + Log Compaction
+Every N operations (`CHECKPOINT_INTERVAL` in `config.ts`), the current state is flushed to disk and the log is **truncated** to just the CHECKPOINT entry. Since `data.json` already holds the full snapshot, nothing before the checkpoint needs replaying.
 
 ```
-checkpoint.json  →  { "lsn": 4 }          (bookmark into the log)
-data.json        →  full state at LSN 4    (the snapshot)
-wal.log          →  replay LSN 5+ only
+checkpoint.json  →  { "lsn": 4 }       (bookmark into the log)
+data.json        →  full state at LSN 4 (the snapshot)
+wal.log          →  only the CHECKPOINT entry + any ops since
 ```
+
+`CHECKPOINT_INTERVAL` is a balance between write overhead (lower = more frequent compaction) and recovery time (higher = more entries to replay on crash).
 
 ### Recovery
 ```
 1. Load checkpoint.json  → find the LSN bookmark
 2. Load data.json        → start from the snapshot
 3. Replay wal.log        → only entries after the checkpoint LSN
+4. Flush rebuilt state   → write data.json so the next restart starts clean
 ```
+
+If no checkpoint exists, the full log is replayed from scratch.
+
+### Crash Safety
+`data.json` is written atomically (write to `.tmp` then rename) so a crash mid-write can never corrupt the snapshot. If the process dies after a log entry is fsynced but before `data.json` is updated, recovery replays that entry from the log and produces a consistent state.
 
 ---
 
@@ -60,14 +68,16 @@ wal.log          →  replay LSN 5+ only
 
 ```
 src/
-  index.ts      — demo script (place, cancel, recover)
-  orderbook.ts  — place, fill, cancel, match engine, recover
-  wal.ts        — appendLog, logAndApply, checkpoint
-  helpers.ts    — readOrderBook, reset
-  types.ts      — Order, OrderBook, Side, log entry types
-  config.ts     — file paths and CHECKPOINT_INTERVAL constant
+  index.ts        — full demo (place, match, cancel, compaction, crash simulation)
+  crash-demo.ts   — resets storage, places crossing orders, exits mid-fill
+  recover-demo.ts — reads existing storage and runs recovery
+  orderbook.ts    — place, fill, cancel, match engine, recover
+  wal.ts          — appendLog, logAndApply, checkpoint+compaction, initWalState
+  helpers.ts      — readOrderBook, reset
+  types.ts        — Order, OrderBook, Side, log entry types
+  config.ts       — file paths and CHECKPOINT_INTERVAL constant
 
-storage/        — runtime files (gitignored)
+storage/          — runtime files (gitignored)
   wal.log
   data.json
   checkpoint.json
@@ -78,7 +88,14 @@ storage/        — runtime files (gitignored)
 ## Run
 
 ```bash
+# Full demo (compaction + in-process crash simulation)
 npm start
+
+# Manual crash test — exits mid-fill, leaving storage in intermediate state
+npm run crash
+
+# Recovery — reads existing storage and replays to consistent state
+npm run recover
 ```
 
 ---
@@ -90,10 +107,11 @@ npm start
 - [x] LSN stamping on every entry
 - [x] Checkpointing + checkpoint.json bookmark
 - [x] Recovery that skips pre-checkpoint entries
-
 - [x] **Pivot to orderbook model** — `PLACE/FILL/CANCEL` events on `bids` and `asks`
 - [x] **Matching engine** — logs a `FILL` event when a bid and ask cross, recovers partial fills correctly
+- [x] **Log compaction** — checkpoint truncates wal.log so recovery never replays stale entries
+- [x] **Crash simulation** — `process.exit()` mid-fill, recovery produces consistent state
 
 ### Next
-- [ ] **Log compaction** — instead of replaying all events, periodically compact to only the current open orders
-- [ ] **Crash simulation** — kill the process mid-match and verify recovery produces a consistent orderbook
+- [ ] **Group commit** — batch multiple log entries and fsync once for higher write throughput
+- [ ] **Partial-write guard** — detect and skip truncated JSON lines in wal.log on recovery

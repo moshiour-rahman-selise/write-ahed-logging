@@ -1,8 +1,13 @@
 import fs from 'fs';
 import { Order, OrderBook, Side, StampedEntry } from './types';
-import { LOG_FILE, CHECKPOINT_FILE } from './config';
+import { LOG_FILE, DATA_FILE, CHECKPOINT_FILE } from './config';
 import { readOrderBook } from './helpers';
 import { logAndApply } from './wal';
+
+// ── Crash injection (demo/test only) ─────────────────────────────────────────
+
+let _crashNextFill: 'throw' | 'exit' | false = false;
+export function setCrashNextFill(mode: 'throw' | 'exit' = 'throw'): void { _crashNextFill = mode; }
 
 // ── Apply helpers ─────────────────────────────────────────────────────────────
 
@@ -36,7 +41,9 @@ export function place(order: Order): void {
 }
 
 export function fill(bidId: number, askId: number, price: number, qty: number): void {
-    logAndApply({ op: 'FILL', bidId, askId, price, qty }, (ob) => applyFill(ob, bidId, askId, qty));
+    const crash = _crashNextFill;
+    _crashNextFill = false;
+    logAndApply({ op: 'FILL', bidId, askId, price, qty }, (ob) => applyFill(ob, bidId, askId, qty), crash !== false && crash);
 }
 
 export function cancel(orderId: number, side: Side): void {
@@ -95,6 +102,10 @@ export function recover(): OrderBook {
 
         console.log(`  replayed: LSN=${entry.lsn} ${entry.op}`);
     }
+
+    // Flush recovered state so the next restart doesn't need to replay the log again
+    fs.writeFileSync(DATA_FILE + '.tmp', JSON.stringify(ob, null, 2));
+    fs.renameSync(DATA_FILE + '.tmp', DATA_FILE);
 
     return ob;
 }

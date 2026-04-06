@@ -4,7 +4,9 @@
   "description": "Hands-on Write-Ahead Log (WAL) pattern implementation in Node.js",
   "main": "src/index.ts",
   "scripts": {
-    "start": "ts-node src/index.ts"
+    "start": "ts-node src/index.ts",
+    "crash": "ts-node src/crash-demo.ts",
+    "recover": "ts-node src/recover-demo.ts"
   },
   "keywords": [],
   "author": "",
